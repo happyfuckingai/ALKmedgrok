@@ -1,0 +1,19 @@
+BILAGA – ÖVERSIKT AV UNDERLAG
+
+Detta är en sammanställning av alla dokument som ingår i det teoretiska underlaget för hypotesen:
+"Lokal benmärgsmodifiering för immunologisk behandling av ALK+ icke-småcellig lungcancer".
+
+Varje del är en modul som bygger upp ett samlat proof-of-concept, baserat på vetenskapliga grunder.
+
+📂 Dokument:
+
+✔ final_report.md – Huvudrapport och konceptförklaring
+✔ proof_of_concept_analysis.md – Hur hypotesen kan testas i praktiken
+✔ research_evidence_summary.md – Sammanställning av relevant forskning
+✔ biological_mechanisms_analysis.md – Hur benmärgen kan påverka immunsystemet lokalt
+✔ in_vivo_stem_cell_modification_analysis.md – Möjligheten att modifiera benmärg in vivo
+✔ cell_migration_analysis.md – Hur celler rör sig mellan benmärg och lunga
+✔ risks_and_solutions_analysis.md – Risker, hinder och möjliga lösningar
+✔ site_structure.md / todo.md – Projektstruktur och vidare utvecklingsplan
+
+Tillsammans visar dokumenten att hypotesen inte bara är logisk, utan testbar, dokumenterad och underbyggd.
