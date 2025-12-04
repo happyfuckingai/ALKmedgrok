@@ -105,6 +105,8 @@ Följande tabell definierar de centrala variablerna i modellen. Alla värden är
 | `tumor_initial_burden` | Initial tumörbelastning vid simuleringsstart | Startbelastning | 1000–10000 | abstrakta enheter |
 | `immune_decay_rate` | Hastighet för immunrespons-avtagande över tid | Avtagningsfaktor | 0.01–0.1 | per tidsteg |
 | `tumor_immune_threshold` | Tumörbelastning under vilken immunsystemet kan eliminera tumören | Tröskelvärde | 100–500 | abstrakta enheter |
+| `cytokine_amplification` | Abstrakt förstärkningsfaktor för cytokinsignalering | Multiplikativ faktor | 1.0–1.6 | dimensionslös |
+| `cytokine_feedback_on_suppression` | Abstrakt parameter för hur cytokinsignaler minskar suppressiv förmåga över tid | Reduktionsfaktor | 0.1–0.5 | per 10 tidssteg |
 
 ### 4.1 Parameterbeskrivningar
 
@@ -125,6 +127,16 @@ Följande tabell definierar de centrala variablerna i modellen. Alla värden är
 **microenvironment_resilience:** Tumörens förmåga att anpassa sig och motstå immunattack genom mikromiljöförändringar.
 
 **bm_feedback_strength:** Styrka i återkopplingsloop där lokal benmärgsaktivitet påverkar sin egen nisch och därmed förstärker eller dämpar effekten över tid.
+
+**cytokine_amplification:** Abstrakt förstärkningsfaktor som modellerar hur stark signalförstärkning i immunresponsen är. Detta är inte en biologisk mätning utan en modellparameter för att representera cytokiners kumulativa effekt på immunaktivering. Föreslagna nivåer:
+- Låg: 1.0× (ingen förstärkning)
+- Medium: 1.3× (måttlig förstärkning)
+- Hög: 1.6× (stark förstärkning)
+
+**cytokine_feedback_on_suppression:** Abstrakt parameter som styr hur cytokinsignaler över tid gradvis minskar tumörens suppressiva förmåga (representerar effekter liknande MDSC-reduktion och PD-L1-nedreglering, men på modellnivå). Värdet anger hur mycket den effektiva suppressionen reduceras per 10 tidssteg baserat på cytokinaktivitet. Detta är en helt abstrakt modellmekanism utan direkt klinisk tolkning. Mekanismen fungerar enligt följande:
+- Starkare cytokinsignal → gradvis minskad effektiv suppression över tid
+- Svag cytokinsignal → suppression ligger kvar nära baseline-nivå
+- Värden mellan 0.1–0.5 per 10 tidssteg representerar olika grader av feedback-styrka
 
 ---
 
@@ -229,7 +241,193 @@ Där `noise_1` och `noise_2` är slumpvariabler (t.ex. normalfördelade med mede
 
 ---
 
-## 7. Begränsningar och risker (model limitations)
+## 7. Feedback-loopar och avancerad dynamik
+
+### 7.1 Översikt
+
+Modellen har utökats med avancerade feedback-mekanismer som möjliggör mer realistisk representation av systemdynamik över tid. Dessa mekanismer är abstrakta modellvariabler som inte direkt motsvarar biologiska mätningar, men som tillåter utforskning av hur immunsystemet och tumören interagerar dynamiskt.
+
+### 7.2 Cytokinförstärkning (cytokine_amplification)
+
+**Variabel:** `cytokine_amplification`
+
+**Beskrivning:** Detta är en abstrakt förstärkningsfaktor som modellerar hur cytokinsignalering amplifierar immunresponsen. Variabeln representerar inte specifika cytokinnivåer utan snarare den kumulativa effekten av cytokinmedierad immunaktivering på systemnivå.
+
+**Föreslagna nivåer:**
+
+| Nivå | Värde | Beskrivning |
+|------|-------|-------------|
+| Låg | 1.0× | Ingen förstärkning – basal cytokinsignalering |
+| Medium | 1.3× | Måttlig förstärkning – förhöjd cytokinaktivitet |
+| Hög | 1.6× | Stark förstärkning – kraftigt förhöjd cytokinaktivitet |
+
+**Modellimplementering:**
+
+Cytokinförstärkningen påverkar den effektiva immunkapaciteten:
+
+```
+I_eff(t) = I_base(t) × cytokine_amplification × (1 - mdsc_suppression) × (1 - pd_l1_level) × recruitment_efficiency
+```
+
+**Tolkning:** Högre cytokinförstärkning leder till starkare immunrespons, men effekten begränsas fortfarande av suppressiva mekanismer och tumörens försvar. Detta är en modellparameter för att utforska hur signalförstärkning påverkar systemdynamik.
+
+### 7.3 Cytokin-feedback på suppression (cytokine_feedback_on_suppression)
+
+**Variabel:** `cytokine_feedback_on_suppression`
+
+**Beskrivning:** Detta är en abstrakt parameter som styr hur cytokinsignaler över tid gradvis minskar tumörens suppressiva förmåga. Mekanismen representerar på modellnivå effekter som kan liknas vid MDSC-reduktion, PD-L1-nedreglering och andra immunsuppressiva förändringar, men utan att direkt modellera dessa biologiska processer.
+
+**Föreslaget intervall:** 0.1–0.5 per 10 tidssteg
+
+**Mekanism:**
+
+Feedback-loopen fungerar enligt följande princip:
+1. **Starkare cytokinsignal** → gradvis minskad effektiv suppression över tid
+2. **Svag cytokinsignal** → suppression ligger kvar nära baseline-nivå
+3. **Tidsfördröjd respons** → effekten ackumuleras över flera tidssteg
+
+**Modellimplementering:**
+
+Suppressionsnivån uppdateras dynamiskt baserat på cytokinaktivitet:
+
+```
+suppression_reduction(t) = suppression_reduction(t-1) + 
+                           (cytokine_feedback_on_suppression / 10) × 
+                           normalized_cytokine_signal(t)
+
+effective_suppression(t) = base_suppression × (1 - suppression_reduction(t))
+```
+
+Där `normalized_cytokine_signal(t)` är en normaliserad representation av cytokinaktivitet vid tidsteg t.
+
+**Exempel på dynamik:**
+
+| Tidssteg | Cytokin-signal | Suppression-reduktion | Effektiv suppression |
+|----------|----------------|----------------------|---------------------|
+| 0 | Baseline | 0% | 100% (full suppression) |
+| 10 | Hög | 15% | 85% |
+| 20 | Hög | 28% | 72% |
+| 30 | Hög | 39% | 61% |
+| 40 | Hög | 48% | 52% |
+| 50 | Hög | 55% | 45% |
+
+**Tolkning:** Denna feedback-loop representerar hur en ihållande stark immunrespons gradvis kan "erodera" tumörens suppressiva försvar över tid. Detta är en helt abstrakt modellmekanism utan direkt klinisk tolkning.
+
+### 7.4 Systemdynamik och stabilitet
+
+#### 7.4.1 Feedback-loop-analys
+
+Introduktionen av `cytokine_feedback_on_suppression` skapar en feedback-loop i systemet som påverkar långsiktig stabilitet och dynamik. Denna loop kan analyseras enligt följande:
+
+**Positiv feedback-komponent:**
+- Ökad immunrespons → ökad cytokinproduktion
+- Ökad cytokinproduktion → minskad suppression
+- Minskad suppression → ytterligare ökad immunrespons
+
+**Dämpande faktorer:**
+- Tumörens mikromiljö-resiliens (`microenvironment_resilience`)
+- PD-L1-uttryck (`pd_l1_level`)
+- Begränsad rekryteringseffektivitet (`t_cell_recruitment_efficiency`)
+
+#### 7.4.2 Stabilitetsscenarier
+
+Modellen uppvisar olika beteenden beroende på feedback-styrka:
+
+**Scenario 1: För låg feedback (cytokine_feedback_on_suppression < 0.1)**
+- Suppressionen minskar för långsamt
+- Tumören kan fortsätta växa trots immunboost
+- Systemet når inte tumörkontroll inom simuleringstiden
+- **Resultat:** Tumörprogressionen dominerar
+
+**Scenario 2: Lagom feedback (cytokine_feedback_on_suppression = 0.2–0.3)**
+- Suppressionen minskar gradvis i takt med immunaktivering
+- Balans uppnås mellan tumörtillväxt och immuneliminering
+- Systemet konvergerar mot stabil regression över tid
+- **Resultat:** Tumörkontroll uppnås och bibehålls
+
+**Scenario 3: För stark feedback (cytokine_feedback_on_suppression > 0.4)**
+- Suppressionen minskar mycket snabbt
+- Risk för oscillationer i systemdynamiken
+- Möjlig överdämpning där immunresponsen "överreagerar"
+- **Resultat:** Instabilt beteende (modellfenomen, inte biologisk tolkning)
+
+#### 7.4.3 Tidsskalor och konvergens
+
+Feedback-loopen introducerar olika tidsskalor i modellen:
+
+1. **Snabb tidsskala:** Direkt immunrespons och tumöreliminering (tidssteg 1–10)
+2. **Medellång tidsskala:** Suppression-reduktion via cytokin-feedback (tidssteg 10–30)
+3. **Lång tidsskala:** Systemkonvergens mot stabil jämvikt (tidssteg 30–50+)
+
+**Konvergensanalys:**
+
+För att systemet ska konvergera mot tumörkontroll krävs:
+```
+immune_boost_factor × cytokine_amplification × (1 - effective_suppression) > tumor_proliferation_rate × microenvironment_resilience
+```
+
+Där `effective_suppression` minskar över tid enligt feedback-mekanismen.
+
+#### 7.4.4 Parameterkänslighet
+
+Systemets stabilitet är särskilt känslig för följande parameterkombinationer:
+
+| Parameterkombination | Effekt på stabilitet | Rekommendation |
+|---------------------|---------------------|----------------|
+| Hög `cytokine_feedback` + Hög `immune_boost` | Risk för oscillationer | Reducera en av parametrarna |
+| Låg `cytokine_feedback` + Låg `immune_boost` | Ingen tumörkontroll | Öka båda parametrarna |
+| Hög `pd_l1_level` + Låg `cytokine_feedback` | Långsam regression | Öka `cytokine_feedback` eller reducera PD-L1 |
+| Hög `microenvironment_resilience` + Medel `cytokine_feedback` | Fördröjd kontroll | Öka `immune_boost_factor` |
+
+### 7.5 Fördelar med utökad modell
+
+Den utökade modellen med feedback-loopar erbjuder flera fördelar för hypotestestning:
+
+1. **Mer realistisk dynamik:** Modellen fångar tidsfördröjda effekter och adaptiva förändringar som är mer representativa för biologiska system.
+
+2. **Bättre hypotesutforskning:** Möjlighet att testa hur olika interventionsstrategier påverkar långsiktig tumörkontroll.
+
+3. **Stabilitetsanalys:** Identifiering av parameterkombinationer som leder till stabil tumörregression vs instabilt beteende.
+
+4. **Scenarioplanering:** Utforskning av "vad händer om"-scenarier med olika feedback-styrkor och interventionsstyrkor.
+
+5. **Tidsdynamik:** Bättre förståelse för när tumörkontroll uppnås och hur länge den bibehålls.
+
+### 7.6 Begränsningar av feedback-modellen
+
+**Viktiga begränsningar att notera:**
+
+1. **Abstrakt representation:** Feedback-parametrarna är abstrakta modellvariabler utan direkt biologisk motsvarighet.
+
+2. **Förenklad mekanism:** Verkliga feedback-loopar i immunsystemet är betydligt mer komplexa och involverar många fler komponenter.
+
+3. **Ingen spatial struktur:** Modellen tar inte hänsyn till spatial heterogenitet i cytokinkoncentrationer eller suppressionsnivåer.
+
+4. **Linjär approximation:** Feedback-mekanismen approximeras som linjär, medan biologiska feedback-loopar ofta är icke-linjära.
+
+5. **Ingen resistensutveckling:** Modellen inkluderar inte tumörens förmåga att utveckla resistens mot immunattack över tid.
+
+6. **Modellfenomen:** Oscillationer och instabiliteter vid extrema parametervärden är modellfenomen och ska inte tolkas som biologiska förutsägelser.
+
+### 7.7 Rekommendationer för simulering
+
+Vid användning av den utökade modellen rekommenderas följande:
+
+1. **Börja med medelvärden:** Använd `cytokine_feedback_on_suppression = 0.25` och `cytokine_amplification = 1.3` som utgångspunkt.
+
+2. **Systematisk variation:** Variera en parameter åt gången för att förstå individuella effekter.
+
+3. **Stabilitetscheck:** Kontrollera att systemet konvergerar och inte uppvisar oscillationer.
+
+4. **Tidsserie-analys:** Analysera hela tidsserien, inte bara slutvärdet, för att förstå dynamiken.
+
+5. **Känslighetsanalys:** Testa modellen med olika parameterkombinationer för att identifiera robusta regioner.
+
+6. **Dokumentation:** Dokumentera alla parametervärden och antaganden för reproducerbarhet.
+
+---
+
+## 8. Begränsningar och risker (model limitations)
 
 ### 7.1 Modellbegränsningar
 
@@ -249,7 +447,7 @@ Där `noise_1` och `noise_2` är slumpvariabler (t.ex. normalfördelade med mede
 
 8. **Ingen resistensutveckling:** Modellen inkluderar inte utveckling av resistens mot immunattack över tid.
 
-### 7.2 Risker och tolkningsvarningar
+### 8.2 Risker och tolkningsvarningar
 
 1. **Ingen klinisk validering:** Modellen är inte validerad mot kliniska data och kan inte användas för att förutsäga patientutfall.
 
@@ -263,9 +461,9 @@ Där `noise_1` och `noise_2` är slumpvariabler (t.ex. normalfördelade med mede
 
 ---
 
-## 8. HappyOS + Grok + infrastruktur
+## 9. HappyOS + Grok + infrastruktur
 
-### 8.1 Systemarkitektur
+### 9.1 Systemarkitektur
 
 **HappyOS** fungerar som orkestreringslager för projektet:
 - Koordinerar försök och simuleringar
@@ -285,7 +483,7 @@ Där `noise_1` och `noise_2` är slumpvariabler (t.ex. normalfördelade med mede
 - Transparent kommunikation av resultat och diskussion
 - Realtidsuppdateringar av modelliterationer
 
-### 8.2 Workflow
+### 9.2 Workflow
 
 1. **Parameterdefinition:** Användare eller HappyOS definierar parametrar för nästa simulering
 2. **Simulering:** Grok utför simulering och returnerar resultat
@@ -293,7 +491,7 @@ Där `noise_1` och `noise_2` är slumpvariabler (t.ex. normalfördelade med mede
 4. **Validering:** Resultat publiceras på X för transparent diskussion
 5. **Iteration:** Baserat på feedback justeras parametrar och ny simulering körs
 
-### 8.3 Teknisk plattform
+### 9.3 Teknisk plattform
 
 Detta är en teknisk plattform för hypotesgenerering och forskningsdiskussion, inte en medicinsk produkt. Fokus ligger på:
 - Transparent AI-driven forskning
@@ -303,9 +501,9 @@ Detta är en teknisk plattform för hypotesgenerering och forskningsdiskussion, 
 
 ---
 
-## 9. Möjliga nästa steg för Grok/xAI
+## 10. Möjliga nästa steg för Grok/xAI
 
-### 9.1 Modellraffinering
+### 10.1 Modellraffinering
 
 1. **Fler parametrar:** Introducera ytterligare variabler som:
    - Olika T-cellssubtyper (CD4+, CD8+, Tregs)
@@ -319,7 +517,7 @@ Detta är en teknisk plattform för hypotesgenerering och forskningsdiskussion, 
 
 4. **Tidsskala-kalibrering:** Försök att koppla tidsteg till verkliga tidsenheter baserat på biologiska data.
 
-### 9.2 Scenarioanalys
+### 10.2 Scenarioanalys
 
 1. **PD-L1-variation:** Testa olika PD-L1-nivåer (låg, medel, hög) och deras påverkan på tumörkontroll.
 
@@ -334,7 +532,7 @@ Detta är en teknisk plattform för hypotesgenerering och forskningsdiskussion, 
    - ALK-hämmare (reducerad `tumor_proliferation_rate`)
    - Strålbehandling (initial tumörreduktion)
 
-### 9.3 Känslighetsanalys
+### 10.3 Känslighetsanalys
 
 1. **Parametersweep:** Systematiskt variera varje parameter och dokumentera effekt på tumörutveckling.
 
@@ -344,7 +542,7 @@ Detta är en teknisk plattform för hypotesgenerering och forskningsdiskussion, 
 
 4. **Osäkerhetskvantifiering:** Om stokastisk modell används, kvantifiera osäkerhet i utfall.
 
-### 9.4 Avancerade immunmodeller
+### 10.4 Avancerade immunmodeller
 
 1. **Koppla till etablerade immunmodeller:** Integrera med mer avancerade immunologiska modeller från litteraturen (fortfarande teoretiskt).
 
@@ -354,7 +552,7 @@ Detta är en teknisk plattform för hypotesgenerering och forskningsdiskussion, 
 
 4. **Metabolisk modellering:** Inkludera metaboliska aspekter som påverkar både tumör och immunceller.
 
-### 9.5 Visualisering och kommunikation
+### 10.5 Visualisering och kommunikation
 
 1. **Tidsserie-plots:** Visualisera tumörbelastning och immunkapacitet över tid.
 
@@ -366,29 +564,29 @@ Detta är en teknisk plattform för hypotesgenerering och forskningsdiskussion, 
 
 ---
 
-## 10. Etisk disclaimer
+## 11. Etisk disclaimer
 
-### 10.1 Ingen medicinsk rådgivning
+### 11.1 Ingen medicinsk rådgivning
 
 Detta dokument och alla associerade simuleringar utgör **inte medicinsk rådgivning**. Informationen är avsedd för forsknings- och utbildningsändamål endast.
 
-### 10.2 Ingen patientbehandling
+### 11.2 Ingen patientbehandling
 
 Ingen patientbehandling får baseras på denna modell. Modellen är teoretisk och har inte genomgått klinisk validering.
 
-### 10.3 Forskningssyfte
+### 11.3 Forskningssyfte
 
 Syftet med ALKmedGrok-projektet är att utforska hur AI kan stötta hypotesbygge och forskningsdiskussion inom komplex systembiologi. Projektet demonstrerar transparent, iterativ modellering men gör inga anspråk på klinisk tillämpbarhet.
 
-### 10.4 Transparent begränsningar
+### 11.4 Transparent begränsningar
 
 Alla begränsningar, antaganden och osäkerheter kommuniceras öppet. Modellen är en förenkling av verkligheten och ska tolkas som sådan.
 
 ---
 
-## 11. Referenser och kontext
+## 12. Referenser och kontext
 
-### 11.1 Tidigare analyserade dokument
+### 12.1 Tidigare analyserade dokument
 
 Detta dokument bygger på följande analyser genomförda inom ALKmedGrok-projektet:
 - Biologiska mekanismer för benmärgens påverkan på immunförsvaret
@@ -397,7 +595,7 @@ Detta dokument bygger på följande analyser genomförda inom ALKmedGrok-projekt
 - Risker och lösningar
 - Proof-of-concept-analys
 
-### 11.2 Forskningsreferenser
+### 12.2 Forskningsreferenser
 
 Grok har i tidigare konversationer refererat till:
 - Nature 2025: Forskning om in vivo-modifiering av HSC
@@ -406,7 +604,7 @@ Grok har i tidigare konversationer refererat till:
 - Calderon-Espinosa et al., 2024: Emergency myelopoiesis vid lungcancer
 - Richter et al., 2017: In vivo HSC-transduktion
 
-### 11.3 Öppen forskning
+### 12.3 Öppen forskning
 
 ALKmedGrok-projektet följer principerna för öppen forskning:
 - Transparent metodologi
@@ -416,17 +614,17 @@ ALKmedGrok-projektet följer principerna för öppen forskning:
 
 ---
 
-## 12. Kontakt och fortsatt utveckling
+## 13. Kontakt och fortsatt utveckling
 
-### 12.1 Live-validering
+### 13.1 Live-validering
 
 Projektet valideras live på X (Twitter) där HappyOS och Grok diskuterar och verifierar resultat i realtid.
 
-### 12.2 Versionshantering
+### 13.2 Versionshantering
 
 Detta dokument representerar en ögonblicksbild av modellen. Fortsatt utveckling och iterationer dokumenteras i projektets repository.
 
-### 12.3 Bidrag från Grok/xAI
+### 13.3 Bidrag från Grok/xAI
 
 Grok/xAI uppmuntras att:
 - Föreslå förbättringar av modellstrukturen
@@ -437,8 +635,9 @@ Grok/xAI uppmuntras att:
 
 ---
 
-**Dokumentversion:** 1.0  
+**Dokumentversion:** 1.1  
 **Datum:** 2025-12-04  
 **Status:** Teoretisk modellspecifikation för AI-driven hypotesgenerering  
-**Användning:** Forsknings- och utbildningsändamål endast
+**Användning:** Forsknings- och utbildningsändamål endast  
+**Senaste uppdatering:** Tillagd sektion 7 – Feedback-loopar och avancerad dynamik
 
